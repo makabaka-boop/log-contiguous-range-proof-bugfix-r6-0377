@@ -140,6 +140,88 @@ def verify_inclusion(
     return used == len(proof) and start + size <= tree_size and current == expected_root
 
 
+def range_proof_ranges(start: int, end: int, tree_size: int) -> list[tuple[int, int]]:
+    """Maximal subtree ranges wholly outside [start, end), left to right.
+
+    Splitting follows the same convention as inclusion and consistency
+    proofs, so a verifier can re-derive this list from the disclosed
+    interval and the tree size alone.
+    """
+
+    if not 0 <= start < end <= tree_size:
+        raise ValueError("expected 0 <= start < end <= tree_size")
+    result: list[tuple[int, int]] = []
+
+    def walk(lo: int, size: int) -> None:
+        hi = lo + size
+        if hi <= start or lo >= end:
+            result.append((lo, size))
+            return
+        if start <= lo and hi <= end:
+            return
+        k = _split_point(size)
+        walk(lo, k)
+        walk(lo + k, size - k)
+
+    walk(0, tree_size)
+    return result
+
+
+def range_proof(
+    leaves: Sequence[bytes], start: int, end: int, tree_size: int | None = None
+) -> list[bytes]:
+    """Shared proof disclosing every leaf in [start, end) of the tree."""
+
+    size = len(leaves) if tree_size is None else tree_size
+    if not 0 <= start < end <= size:
+        raise IndexError("range is outside the tree")
+    if size > len(leaves):
+        raise ValueError("tree size exceeds available leaves")
+    return [
+        subtree_hash(leaves, lo, span)
+        for lo, span in range_proof_ranges(start, end, size)
+    ]
+
+
+def verify_range(
+    *,
+    leaf_data: Sequence[bytes],
+    start: int,
+    end: int,
+    tree_size: int,
+    proof: Sequence[bytes],
+    expected_root: bytes,
+) -> bool:
+    if not 0 <= start < end <= tree_size:
+        return False
+    if len(leaf_data) != end - start:
+        return False
+    if len(expected_root) != HASH_SIZE:
+        return False
+    if any(len(item) != HASH_SIZE for item in proof):
+        return False
+    if len(proof) != len(range_proof_ranges(start, end, tree_size)):
+        return False
+
+    leaves = [leaf_hash(item) for item in leaf_data]
+    consumed = 0
+
+    def walk(lo: int, size: int) -> bytes:
+        nonlocal consumed
+        hi = lo + size
+        if hi <= start or lo >= end:
+            value = proof[consumed]
+            consumed += 1
+            return value
+        if start <= lo and hi <= end:
+            return subtree_hash(leaves, lo - start, size)
+        k = _split_point(size)
+        return node_hash(walk(lo, k), walk(lo + k, size - k))
+
+    calculated = walk(0, tree_size)
+    return consumed == len(proof) and calculated == expected_root
+
+
 def _components(size: int) -> list[tuple[int, int]]:
     result: list[tuple[int, int]] = []
     start = 0

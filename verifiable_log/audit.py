@@ -418,6 +418,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "start": args.start,
                 "end": args.end,
                 "tree_size": args.tree_size,
+                "root_hash": _hex_hash(args.root_hash, "root hash").hex(),
+                "records_checked": args.end - args.start,
             }
         elif args.audit_command == "root":
             result = audit_root(args.url)

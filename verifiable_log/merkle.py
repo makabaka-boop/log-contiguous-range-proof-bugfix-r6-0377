@@ -140,6 +140,51 @@ def verify_inclusion(
     return used == len(proof) and start + size <= tree_size and current == expected_root
 
 
+def range_ranges(start: int, end: int, size: int) -> list[tuple[int, int]]:
+    """Maximal subtrees wholly outside the half-open interval [start, end).
+
+    The ranges follow only from the interval and tree size; a verifier can
+    derive the identical proof shape without trusting the service.  Ranges are
+    emitted in left-to-right tree order.  Subtrees fully covered by the
+    interval contribute no proof hash: their leaves are disclosed directly.
+    """
+    if not 0 <= start < end <= size:
+        raise ValueError("expected 0 <= start < end <= size")
+
+    result: list[tuple[int, int]] = []
+
+    def walk(lo: int, count: int) -> None:
+        hi = lo + count
+        if hi <= start or lo >= end:
+            result.append((lo, count))
+            return
+        if start <= lo and hi <= end:
+            return
+        k = _split_point(count)
+        walk(lo, k)
+        walk(lo + k, count - k)
+
+    walk(0, size)
+    return result
+
+
+def range_proof(
+    leaves: Sequence[bytes],
+    start: int,
+    end: int,
+    tree_size: int | None = None,
+) -> list[bytes]:
+    size = len(leaves) if tree_size is None else tree_size
+    if not 0 <= start < end <= size:
+        raise IndexError("range is outside the tree")
+    if size > len(leaves):
+        raise ValueError("tree size exceeds available leaves")
+    return [
+        subtree_hash(leaves, lo, count)
+        for lo, count in range_ranges(start, end, size)
+    ]
+
+
 def _components(size: int) -> list[tuple[int, int]]:
     result: list[tuple[int, int]] = []
     start = 0
